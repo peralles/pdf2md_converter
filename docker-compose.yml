@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  converter:
+    build: .
+    volumes:
+      - ${INPUT_DIR:-./input}:/data/input
+      - ${OUTPUT_DIR:-./output}:/data/output
+    environment:
+      - TESSDATA_PREFIX=/usr/share/tesseract-ocr/4.00/tessdata

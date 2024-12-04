@@ -14,6 +14,7 @@ import pytesseract
 from pdf2image import convert_from_path
 import tempfile
 import shutil
+import pandas as pd
 
 class ConversionReport:
     """Classe para gerenciar o relatório de conversão"""
@@ -78,6 +79,8 @@ class DocumentConverter:
         mimetypes.init()
         mimetypes.add_type('application/rtf', '.rtf')
         mimetypes.add_type('application/vnd.openxmlformats-officedocument.presentationml.presentation', '.pptx')
+        mimetypes.add_type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xlsx')
+        mimetypes.add_type('application/vnd.ms-excel', '.xls')
         
         # Verifica se o Tesseract está instalado
         try:
@@ -237,36 +240,59 @@ class DocumentConverter:
         except Exception as e:
             raise Exception(f"Erro ao processar RTF: {str(e)}")
 
-    def convert_file(self, input_path, output_path):
-        """Converte qualquer arquivo suportado para markdown"""
-        self.logger.info(f"Iniciando conversão de: {input_path}")
+    def convert_excel_to_markdown(self, input_file):
+        """Converte arquivo Excel para Markdown"""
+        try:
+            # Lê todas as planilhas do arquivo Excel
+            excel_file = pd.ExcelFile(input_file)
+            markdown_content = []
+            
+            # Processa cada planilha
+            for sheet_name in excel_file.sheet_names:
+                df = pd.read_excel(input_file, sheet_name=sheet_name)
+                
+                # Adiciona o nome da planilha como título
+                markdown_content.append(f"## {sheet_name}\n")
+                
+                # Converte o DataFrame para markdown
+                markdown_table = df.to_markdown(index=False)
+                markdown_content.append(markdown_table + "\n\n")
+            
+            return "\n".join(markdown_content)
+        except Exception as e:
+            self.logger.error(f"Erro ao converter arquivo Excel: {str(e)}")
+            raise
+
+    def convert_file(self, input_file, output_file):
+        """Converte um arquivo para Markdown baseado em seu tipo"""
+        self.logger.info(f"Iniciando conversão de: {input_file}")
         
         try:
             # Verifica se o arquivo existe
-            if not os.path.exists(input_path):
-                raise FileNotFoundError(f"Arquivo não encontrado: {input_path}")
+            if not os.path.exists(input_file):
+                raise FileNotFoundError(f"Arquivo não encontrado: {input_file}")
             
             # Verifica se o arquivo está vazio
-            if os.path.getsize(input_path) == 0:
+            if os.path.getsize(input_file) == 0:
                 raise ValueError("Arquivo está vazio")
             
             # Detecta o tipo do arquivo
-            mime_type, _ = mimetypes.guess_type(input_path)
+            mime_type, _ = mimetypes.guess_type(input_file)
             
             # Converte o arquivo
-            with open(output_path, 'w', encoding='utf-8') as out_file:
+            with open(output_file, 'w', encoding='utf-8') as out_file:
                 if mime_type == 'application/pdf':
-                    content = self.convert_pdf(input_path)
+                    content = self.convert_pdf(input_file)
                 elif mime_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-                    content = self.convert_docx(input_path)
+                    content = self.convert_docx(input_file)
                 elif mime_type == 'application/vnd.openxmlformats-officedocument.presentationml.presentation':
-                    content = self.convert_pptx(input_path)
+                    content = self.convert_pptx(input_file)
                 elif mime_type == 'application/rtf':
-                    content = self.convert_rtf(input_path)
-                elif mime_type == 'text/plain' or input_path.endswith('.txt'):
-                    content = self.convert_txt(input_path)
+                    content = self.convert_rtf(input_file)
+                elif mime_type in ['application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']:
+                    content = self.convert_excel_to_markdown(input_file)
                 else:
-                    self.report.add_skipped(input_path, f"Formato não suportado: {mime_type}")
+                    self.report.add_skipped(input_file, f"Formato não suportado: {mime_type}")
                     return
                 
                 # Verifica se o conteúdo convertido não está vazio
@@ -274,12 +300,12 @@ class DocumentConverter:
                     raise ValueError("Nenhum conteúdo extraído do arquivo")
                 
                 out_file.write(content)
-                self.report.add_success(input_path)
-                self.logger.info(f"Arquivo convertido com sucesso: {input_path}")
+                self.report.add_success(input_file)
+                self.logger.info(f"Arquivo convertido com sucesso: {input_file}")
                 
         except Exception as e:
-            self.logger.error(f"Erro ao processar {input_path}: {str(e)}")
-            self.report.add_failure(input_path, str(e))
+            self.logger.error(f"Erro ao processar {input_file}: {str(e)}")
+            self.report.add_failure(input_file, str(e))
 
 def process_directory(input_dir, output_dir):
     """
@@ -298,7 +324,7 @@ def process_directory(input_dir, output_dir):
     output_path.mkdir(parents=True, exist_ok=True)
     
     # Lista todos os arquivos no diretório e subdiretórios
-    supported_extensions = {'.pdf', '.docx', '.pptx', '.txt', '.rtf'}
+    supported_extensions = {'.pdf', '.docx', '.pptx', '.txt', '.rtf', '.xlsx', '.xls'}
     files = [f for f in input_path.rglob("*") if f.suffix.lower() in supported_extensions]
     
     if not files:
